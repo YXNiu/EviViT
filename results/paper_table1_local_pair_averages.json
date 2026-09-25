@@ -1,0 +1,16 @@
+{
+  "description": "Paper Table 1 aggregate accuracy for locally evaluated open-checkpoint pairs; not per-question predictions or a substitute for benchmark manifests and checkpoints.",
+  "unit": "percentage points",
+  "average_definition": "Unweighted mean of VisualProbe Easy, Medium, and Hard; V*Bench; HR-Bench 4K and 8K; and full-image ZoomBench.",
+  "paired_results": [
+    {"host": "Qwen3-VL-4B", "base_average": 60.26, "evivit_average": 65.86, "gain": 5.60},
+    {"host": "Qwen3-VL-8B", "base_average": 61.77, "evivit_average": 67.86, "gain": 6.09},
+    {"host": "Qwen3.5-4B", "base_average": 62.81, "evivit_average": 70.21, "gain": 7.40},
+    {"host": "Qwen3.5-9B", "base_average": 62.66, "evivit_average": 68.86, "gain": 6.20},
+    {"host": "ZwZ-4B", "base_average": 64.66, "evivit_average": 67.26, "gain": 2.60},
+    {"host": "ZwZ-8B", "base_average": 66.80, "evivit_average": 72.90, "gain": 6.10},
+    {"host": "Vero-Qwen3I-8B", "base_average": 65.24, "evivit_average": 71.19, "gain": 5.95},
+    {"host": "Vision-OPD-4B", "base_average": 68.35, "evivit_average": 71.70, "gain": 3.35},
+    {"host": "Vision-OPD-9B", "base_average": 70.26, "evivit_average": 72.24, "gain": 1.98}
+  ]
+}

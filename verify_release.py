@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Offline source-only checks for the anonymous supplementary archive."""
+
+from __future__ import annotations
+
+import ast
+import csv
+import json
+import re
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+ALLOWED_SUFFIXES = {".py", ".sh", ".md", ".json", ".csv"}
+REQUIRED_FILES = {
+    "README.md",
+    "verify_release.py",
+    "run_final_eval.sh",
+    "run_final_baseline.sh",
+    "run_final_judge.sh",
+    "run_final_train_bridge.sh",
+    "run_matched_sft.sh",
+    "configs/gpu_safety.json",
+    "scripts/eval_evivit_v3_mid_bridge.py",
+    "scripts/eval_qwen_original_qa.py",
+    "scripts/judge_qa_predictions_local_qwen.py",
+    "scripts/train_evivit_v3_bridge.py",
+    "scripts/train_evivit_answer_sft.py",
+    "results/paper_table1_local_pair_averages.json",
+    "results/fine_grained_open_pairs.csv",
+    "results/fine_grained_gain_heatmap.csv",
+    "results/budget_scaling_frontier.csv",
+    "results/paper_efficiency_table.csv",
+    "results/paper_sft_recovery.csv",
+    "results/sft_training_curves.csv",
+}
+PRIVATE_PATH = re.compile(
+    r"(?i)(?<![A-Za-z0-9])/(?:Users|home|Volumes|private|data_[A-Za-z0-9]+|mnt)/"
+)
+EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+SECRET = re.compile(
+    r"(?i)(?:api[_-]?key|access[_-]?token|secret[_-]?key)\s*[:=]\s*['\"][^'\"]{12,}"
+)
+
+
+def audit_results(errors: list[str]) -> None:
+    results = ROOT / "results"
+    expected_rows = {
+        "fine_grained_open_pairs.csv": 63,
+        "fine_grained_gain_heatmap.csv": 63,
+        "budget_scaling_frontier.csv": 28,
+        "paper_efficiency_table.csv": 12,
+        "paper_sft_recovery.csv": 4,
+        "sft_training_curves.csv": 31500,
+    }
+    for name, count in expected_rows.items():
+        path = results / name
+        if not path.is_file():
+            errors.append(f"missing result file: {name}")
+            continue
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if len(rows) != count:
+            errors.append(f"result row count {name}: {len(rows)} != {count}")
+        if any(not all(row.values()) for row in rows):
+            # Global controls have blank gains; early curve points have no moving mean.
+            if name not in {
+                "paper_efficiency_table.csv",
+                "paper_sft_recovery.csv",
+                "sft_training_curves.csv",
+            }:
+                errors.append(f"empty result cell: {name}")
+        if name == "sft_training_curves.csv":
+            arms = {row["model"] for row in rows}
+            if arms != {"Base+SFT", "EviViT+SFT"}:
+                errors.append(f"unexpected SFT curve arms: {sorted(arms)}")
+            for arm in arms:
+                if max(float(row["epoch"]) for row in rows if row["model"] == arm) < 2.99:
+                    errors.append(f"incomplete SFT curve: {arm}")
+        if name == "fine_grained_open_pairs.csv":
+            keys = {(row["host"], row["benchmark"]) for row in rows}
+            if len(keys) != 63:
+                errors.append("duplicate or missing fine-grained host/benchmark pair")
+            for row in rows:
+                displayed_gain = float(row["evivit_accuracy_pct"]) - float(row["base_accuracy_pct"])
+                if abs(displayed_gain - float(row["gain_pp_from_displayed_cells"])) > 0.011:
+                    errors.append(f"fine-grained displayed gain mismatch: {row['host']} {row['benchmark']}")
+    summary_path = results / "paper_table1_local_pair_averages.json"
+    if not summary_path.is_file():
+        errors.append("missing Table 1 summary")
+        return
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    pairs = summary["paired_results"]
+    if len(pairs) != 9 or len({pair["host"] for pair in pairs}) != 9:
+        errors.append("expected nine unique Table 1 host pairs")
+    for pair in pairs:
+        if abs(pair["base_average"] + pair["gain"] - pair["evivit_average"]) > 0.011:
+            errors.append(f"Table 1 average/gain mismatch: {pair['host']}")
+
+
+def main() -> int:
+    errors: list[str] = []
+    files = sorted(
+        path
+        for path in ROOT.rglob("*")
+        if path.is_file() and ".git" not in path.relative_to(ROOT).parts
+    )
+    actual = {str(path.relative_to(ROOT)) for path in files}
+    missing = REQUIRED_FILES - actual
+    if missing:
+        errors.append(f"missing required files: {sorted(missing)}")
+    total_bytes = 0
+    python_count = 0
+    previous_package = "sig" + "s"
+    for path in files:
+        relative = path.relative_to(ROOT)
+        if path.is_symlink():
+            errors.append(f"symlink: {relative}")
+            continue
+        if path.suffix not in ALLOWED_SUFFIXES:
+            errors.append(f"unexpected asset: {relative}")
+            continue
+        raw = path.read_bytes()
+        total_bytes += len(raw)
+        if b"\x00" in raw:
+            errors.append(f"binary content: {relative}")
+            continue
+        source = raw.decode("utf-8")
+        if PRIVATE_PATH.search(source) or EMAIL.search(source):
+            errors.append(f"identifying or machine-specific text: {relative}")
+        if SECRET.search(source) or "-----BEGIN " + "PRIVATE KEY-----" in source:
+            errors.append(f"possible credential: {relative}")
+        if path.suffix != ".py":
+            continue
+        python_count += 1
+        try:
+            tree = ast.parse(source, filename=str(relative))
+        except SyntaxError as exc:
+            errors.append(f"Python syntax: {relative}: {exc}")
+            continue
+        for node in ast.walk(tree):
+            module = None
+            if isinstance(node, ast.ImportFrom):
+                module = node.module
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == previous_package:
+                        errors.append(f"unrenamed package import: {relative}")
+            if module == previous_package or (
+                module and module.startswith(previous_package + ".")
+            ):
+                errors.append(f"unrenamed package import: {relative}")
+            if module and module.startswith(("evivit_core.", "scripts.")):
+                module_path = ROOT / (module.replace(".", "/") + ".py")
+                if not module_path.is_file():
+                    errors.append(f"missing local import {module}: {relative}")
+    if total_bytes > 100 * 1024 * 1024:
+        errors.append("source directory exceeds 100 MiB")
+    audit_results(errors)
+    print(f"files={len(files)} python_files={python_count} bytes={total_bytes}")
+    if errors:
+        for error in sorted(set(errors)):
+            print(f"FAIL {error}")
+        return 1
+    print("PASS source syntax, local imports, result structure, path/identity scan, and size")
+    print("NOTE this does not replace a GPU run with external assets")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

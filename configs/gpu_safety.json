@@ -1,0 +1,6 @@
+{
+  "policy_version": "1.2",
+  "soft_total_used_mib": 98304,
+  "hard_total_used_mib": 98304,
+  "minimum_free_after_reservation_mib": 0
+}
