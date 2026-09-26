@@ -994,7 +994,7 @@ def main() -> int:
         "projection_seed": args.projection_seed,
         "trainer_sha256": sha256_file(Path(__file__)),
         "shared_utilities_sha256": sha256_file(
-            ROOT / "sigs/evivit_posttraining.py"
+            ROOT / "evivit_core/evivit_posttraining.py"
         ),
         "model_config_sha256": sha256_file(args.model / "config.json"),
         "model_index_sha256": (

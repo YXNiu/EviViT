@@ -98,6 +98,44 @@ def audit_results(errors: list[str]) -> None:
             errors.append(f"Table 1 average/gain mismatch: {pair['host']}")
 
 
+def literal_project_path(node: ast.AST) -> Path | None:
+    """Resolve literal ROOT-relative paths without importing training code."""
+    if isinstance(node, ast.Name) and node.id == "ROOT":
+        return ROOT
+    if (
+        isinstance(node, ast.BinOp)
+        and isinstance(node.op, ast.Div)
+        and isinstance(node.right, ast.Constant)
+        and isinstance(node.right.value, str)
+    ):
+        parent = literal_project_path(node.left)
+        if parent is not None:
+            return parent / node.right.value
+    return None
+
+
+def audit_python(tree: ast.AST, relative: Path, errors: list[str]) -> None:
+    for node in ast.walk(tree):
+        project_path = literal_project_path(node)
+        if project_path is not None and project_path.suffix in {".py", ".sh", ".json"}:
+            if not project_path.is_file():
+                errors.append(f"missing project source/config path: {relative}:{node.lineno}")
+        modules: list[str] = []
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.append(node.module)
+        elif isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        for module in modules:
+            if module.split(".")[0] not in {"evivit_core", "scripts"}:
+                continue
+            module_path = ROOT / module.replace(".", "/")
+            if not (
+                module_path.with_suffix(".py").is_file()
+                or (module_path / "__init__.py").is_file()
+            ):
+                errors.append(f"missing local import {module}: {relative}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = sorted(
@@ -111,7 +149,6 @@ def main() -> int:
         errors.append(f"missing required files: {sorted(missing)}")
     total_bytes = 0
     python_count = 0
-    previous_package = "sig" + "s"
     for path in files:
         relative = path.relative_to(ROOT)
         if path.is_symlink():
@@ -138,22 +175,7 @@ def main() -> int:
         except SyntaxError as exc:
             errors.append(f"Python syntax: {relative}: {exc}")
             continue
-        for node in ast.walk(tree):
-            module = None
-            if isinstance(node, ast.ImportFrom):
-                module = node.module
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == previous_package:
-                        errors.append(f"unrenamed package import: {relative}")
-            if module == previous_package or (
-                module and module.startswith(previous_package + ".")
-            ):
-                errors.append(f"unrenamed package import: {relative}")
-            if module and module.startswith(("evivit_core.", "scripts.")):
-                module_path = ROOT / (module.replace(".", "/") + ".py")
-                if not module_path.is_file():
-                    errors.append(f"missing local import {module}: {relative}")
+        audit_python(tree, relative, errors)
     if total_bytes > 100 * 1024 * 1024:
         errors.append("source directory exceeds 100 MiB")
     audit_results(errors)
@@ -162,7 +184,7 @@ def main() -> int:
         for error in sorted(set(errors)):
             print(f"FAIL {error}")
         return 1
-    print("PASS source syntax, local imports, result structure, path/identity scan, and size")
+    print("PASS source syntax, local imports/paths, result structure, path/identity scan, and size")
     print("NOTE this does not replace a GPU run with external assets")
     return 0
 
