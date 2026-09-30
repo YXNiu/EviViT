@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline source-only checks for the anonymous supplementary archive."""
+"""Offline source/result checks for the public EviViT repository."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-ALLOWED_SUFFIXES = {".py", ".sh", ".md", ".json", ".csv"}
+ALLOWED_SUFFIXES = {".py", ".sh", ".md", ".json", ".csv", ".cff"}
+PAGE_ASSET_SUFFIXES = {".png", ".svg", ".mjs"}
 REQUIRED_FILES = {
     "README.md",
     "verify_release.py",
@@ -154,11 +155,19 @@ def main() -> int:
         if path.is_symlink():
             errors.append(f"symlink: {relative}")
             continue
-        if path.suffix not in ALLOWED_SUFFIXES:
+        page_asset = (
+            relative.parts[:2] == ("docs", "assets")
+            and path.suffix in PAGE_ASSET_SUFFIXES
+        )
+        if path.suffix not in ALLOWED_SUFFIXES and not page_asset:
             errors.append(f"unexpected asset: {relative}")
             continue
         raw = path.read_bytes()
         total_bytes += len(raw)
+        if page_asset and path.suffix == ".png":
+            if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                errors.append(f"invalid PNG page asset: {relative}")
+            continue
         if b"\x00" in raw:
             errors.append(f"binary content: {relative}")
             continue

@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use EviViT, please cite the accompanying paper below."
+title: "EviViT: Evidence-Adaptive Vision Transformers for Fine-Grained Perception"
+type: software
+repository-code: "https://github.com/YXNiu/EviViT"
+url: "https://arxiv.org/abs/2609.37123"
+authors:
+  - family-names: Niu
+    given-names: Yaoxin
+  - family-names: Chen
+    given-names: Zhangquan
+  - family-names: Zhang
+    given-names: Yang
+  - family-names: An
+    given-names: Xiang
+  - family-names: Wang
+    given-names: Zhumei
+  - family-names: Liao
+    given-names: Chih-Ting
+  - family-names: Cao
+    given-names: Hongkun
+  - family-names: Huang
+    given-names: Ruqi
+preferred-citation:
+  type: article
+  title: "EviViT: Evidence-Adaptive Vision Transformers for Fine-Grained Perception"
+  journal: arXiv
+  year: 2026
+  url: "https://arxiv.org/abs/2609.37123"
+  authors:
+    - family-names: Niu
+      given-names: Yaoxin
+    - family-names: Chen
+      given-names: Zhangquan
+    - family-names: Zhang
+      given-names: Yang
+    - family-names: An
+      given-names: Xiang
+    - family-names: Wang
+      given-names: Zhumei
+    - family-names: Liao
+      given-names: Chih-Ting
+    - family-names: Cao
+      given-names: Hongkun
+    - family-names: Huang
+      given-names: Ruqi
